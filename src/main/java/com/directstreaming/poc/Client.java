@@ -8,15 +8,22 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
-public class Client {
+import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
 
-    /**
-     * TRY TO TALK WITH CASSANDRA USING https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
-     */
+/**
+ * Dump Cassandra connector - attempt to query cassandra without any external driver.
+ * Main goal is to reduce garbage and reduce unnecessary copying from direct buffer to user space and next to
+ * direct buffers used by sockets.
+ * <p>
+ * <p>
+ * This code is actually worse than horrible - but works - at least for me (｡◕‿‿◕｡)
+ */
+
+public class Client {
 
     public static void main(final String... args) throws InterruptedException {
 
-        EventLoopGroup group = new NioEventLoopGroup(1);
+        final EventLoopGroup group = new NioEventLoopGroup(1);
 
         try {
             Bootstrap b = new Bootstrap();
@@ -28,62 +35,28 @@ public class Client {
                         protected void initChannel(final SocketChannel ch) throws Exception {
                             ChannelPipeline p = ch.pipeline();
                             p.addLast(new CassandraRequestHandler());
+                            p.addLast(new DomainRowHandler());
                         }
                     });
 
             final ChannelFuture sync = b.connect("127.0.0.1", 9042).sync();
 
-            Channel channel = sync.channel();
-            ByteBufAllocator alloc = channel.alloc();
+            final Channel channel = sync.channel();
+            final ByteBufAllocator alloc = channel.alloc();
 
-            ByteBuf buffer = alloc.heapBuffer();
-            buffer.writeByte(0x04); //request
-            buffer.writeBytes(new byte[]{0x00}); // flag
-            buffer.writeBytes(new byte[]{0x00}); //stream id
-            buffer.writeBytes(new byte[]{0x00}); //stream id
-            buffer.writeBytes(new byte[]{0x01}); // startup
+            final ByteBuf buffer = alloc.heapBuffer();
 
-            channel.write(buffer);
+            constructStartupMessage(buffer); //construct STARTUP message - say hello to Cassandra node.
 
-
-            //body
-
-            ByteBuf map = channel.alloc().buffer();
-
-            String key = "CQL_VERSION";
-
-            String value = "3.0.0";
-
-            //map sie
-            map.writeShort(1);
-
-            //key
-            map.writeShort(key.length());
-            map.writeBytes(key.getBytes());
-
-            //value
-            map.writeShort(value.length());
-            map.writeBytes(value.getBytes());
-
-
-            ByteBuf bodySize = channel.alloc().buffer();
-
-            short size = (short) (2 + 2 + key.length() + 2 + value.length());
-            bodySize.writeInt(size);
-
-            channel.write(bodySize);
-            channel.writeAndFlush(map);
-            channel.flush();
+            channel.writeAndFlush(buffer);
 
             channel.closeFuture().await();
 
-
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        } catch (final InterruptedException ex) {
+            System.err.println("Houston we have a problem " + ex);
         } finally {
             group.shutdownGracefully();
         }
-
 
     }
 }
