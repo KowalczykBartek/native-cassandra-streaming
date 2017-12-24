@@ -1,7 +1,8 @@
 package com.directstreaming.poc;
 
-import com.directstreaming.poc.domain.DomainRow;
+import io.netty.buffer.AbstractByteBufAllocator;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 
@@ -27,6 +28,12 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
     private byte[] page_state;
 
     private boolean finishMePleaseThereIsNoMoreResults = false;
+
+    private final Channel requestingChannel;
+
+    public CassandraRequestHandler(final Channel requestingChannel) {
+        this.requestingChannel = requestingChannel;
+    }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -105,6 +112,9 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
         if (finishMePleaseThereIsNoMoreResults) {
             System.err.println("ALL PROCESSED ROWS " + globalRowsCount);
+
+            requestingChannel.close();//FIXME don't forget about me.
+
             return;
         }
 
@@ -175,7 +185,6 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
             int sumOfReadBytes = 0;
 
-            final DomainRow.DomainRowBuilder domainRowBuilder = new DomainRow.DomainRowBuilder();
             {
                 if (!byteBuf.isReadable(4)) {
                     return;
@@ -194,8 +203,6 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
                 byte[] content = new byte[rowLength];
                 byteBuf.readBytes(content);
-
-                domainRowBuilder.withValue1(new String(content));
             }
             {
                 if (!byteBuf.isReadable(4)) {
@@ -218,8 +225,6 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
                 byte[] content = new byte[rowLength];
                 byteBuf.readBytes(content);
-
-                domainRowBuilder.withValue1(new String(content));
             }
             {
                 if (!byteBuf.isReadable(4)) {
@@ -243,9 +248,6 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
                 long l = byteBuf.readLong();
 
                 sumOfReadBytes += 8;
-
-                domainRowBuilder.withValue3(l);
-
             }
             {
                 if (!byteBuf.isReadable(4)) {
@@ -270,17 +272,17 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
                 sumOfReadBytes += 16;
 
                 UUID uuid = new UUID(mostSignificant, lessSignificant);
-
-                domainRowBuilder.withValue4(uuid);
             }
             {
                 if (!byteBuf.isReadable(4)) {
+
                     byteBuf.readerIndex(byteBuf.readerIndex() - sumOfReadBytes);
 
                     return;
                 }
-                int rowLength = byteBuf.readInt();
+
                 sumOfReadBytes += 4;
+                int rowLength = byteBuf.readInt();
 
                 if (!byteBuf.isReadable(rowLength)) {
 
@@ -288,44 +290,33 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
                     return;
                 }
-                long l = byteBuf.readLong();
+                sumOfReadBytes += rowLength;
 
-                sumOfReadBytes += 8;
+                byte[] bytes = new byte[rowLength];
 
-                domainRowBuilder.withValue5(l);
-            }
+                byteBuf.readBytes(bytes);
 
-            {
-                if (!byteBuf.isReadable(4)) {
+//                final ByteBuf slice = byteBuf.slice(byteBuf.readerIndex(), rowLength);
+//
+//                byteBuf.readerIndex(byteBuf.readerIndex() + rowLength);
 
-                    byteBuf.readerIndex(byteBuf.readerIndex() - sumOfReadBytes);
+                //FIXME THIS HAVE TO BE REPLACED WITH NO-USER-SPACE COPY
+                //FIXME BUT FOR END-TO-END, NOW IT CAN BE LIKE THAT.
+                final ByteBuf buffer = ctx.alloc().buffer();
+                buffer.writeBytes(bytes);
 
-                    return;
+                //FIXME ISWRITABLE HAVE TO BE CHECK, IF NO, THERE WILL BE NO BACKPRESSURE AT APPLICATION LEVEL.
+
+                //flush, flush flush ....one performance killer more.
+
+                if (requestingChannel != null) {
+                    requestingChannel.writeAndFlush(buffer);
                 }
-
-                int rowLength = byteBuf.readInt();
-
-                sumOfReadBytes += 4;
-
-                if (!byteBuf.isReadable(rowLength)) {
-
-                    byteBuf.readerIndex(byteBuf.readerIndex() - sumOfReadBytes);
-
-                    return;
-                }
-                long l = byteBuf.readLong();
-
-                sumOfReadBytes += 8;
-
-                domainRowBuilder.withValue6(l);
-
+                //FIXME use slice !
             }
 
             /*FIXME*/
-            ctx.fireChannelRead(domainRowBuilder.build());
-
             globalRowsCount++;
-
         }
 
         if (rowsIndex == rows) {

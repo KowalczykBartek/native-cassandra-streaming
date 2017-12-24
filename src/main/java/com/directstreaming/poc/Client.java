@@ -14,11 +14,8 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
  * Dump Cassandra connector - attempt to query cassandra without any external driver.
  * Main goal is to reduce garbage and reduce unnecessary copying from direct buffer to user space and next to
  * direct buffers used by sockets.
- * <p>
- * <p>
  * This code is actually worse than horrible - but works - at least for me (｡◕‿‿◕｡)
  */
-
 public class Client {
 
     public static void main(final String... args) throws InterruptedException {
@@ -34,8 +31,7 @@ public class Client {
                         @Override
                         protected void initChannel(final SocketChannel ch) throws Exception {
                             ChannelPipeline p = ch.pipeline();
-                            p.addLast(new CassandraRequestHandler());
-                            p.addLast(new DomainRowHandler());
+                            p.addLast(new CassandraRequestHandler(null));
                         }
                     });
 
