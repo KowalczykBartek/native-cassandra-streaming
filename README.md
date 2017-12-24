@@ -1,18 +1,24 @@
 [![](https://img.shields.io/badge/unicorn-approved-ff69b4.svg)](https://www.youtube.com/watch?v=9auOCbH5Ns4)
 ![][license img]
 
-# wtf
+## wtf
 This is ugly attemp to stream data from Apache Cassandra without external Java Driver (only Netty used - because Netty is cool !)
 
-For now, it will perform "SELECT * FROM SOMETABLE" - and using page_state will try to stream all data (without driver of course).
+For now, it will perform 
+```bash
+SELECT * FROM SOMETABLE,
+```
+and using page_state will try to stream all data (without driver of course).
 
-# how to run ?
+## how to run ?
 Run Cassandra (expected localhost with port 9042 - so, default).
 You can use Setup.java to create keyspace and table - this class will also put into Cassandra some record,
 next just run Server and connect via plain TCP, you can use telnet or included StreamingClient.
 
+## links
+https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
 
-# Powered by
+## Powered by
 <img src="http://normanmaurer.me/presentations/2014-netflix-netty/images/netty_logo.png" height="75" width="150">
 
 [license img]:https://img.shields.io/badge/License-Apache%202-blue.svg
