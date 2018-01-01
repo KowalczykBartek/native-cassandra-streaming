@@ -16,7 +16,7 @@ import io.netty.handler.logging.LoggingHandler;
  * Main goal is to reduce garbage and reduce unnecessary copying from direct buffer to user space and next to
  * direct buffers used by sockets.
  * This code is actually worse than horrible - but works - at least for me (｡◕‿‿◕｡)
- *
+ * <p>
  * Server listening for connection : 8080
  * Cassandra uses : 9042
  */
@@ -42,7 +42,7 @@ public class Server {
                         }
                     });
 
-           final  ChannelFuture f = b.bind(8080).sync();
+            final ChannelFuture f = b.bind(8080).sync();
 
             f.channel().closeFuture().sync();
 

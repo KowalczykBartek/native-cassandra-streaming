@@ -1,23 +1,18 @@
 package com.directstreaming.poc;
 
-import io.netty.buffer.AbstractByteBufAllocator;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 
-import java.util.UUID;
-
 import static com.directstreaming.poc.CqlProtocolUtil.PAGE_STATE_MAGIC_NUMBER;
 import static com.directstreaming.poc.CqlProtocolUtil.constructQueryMessage;
 
-public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
+public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter {
 
     private long globalRowsCount = 0;
 
     private int queryNumber = 0;
-
-    private boolean firstTime = true;
 
     private ByteBuf byteBuf;
 
@@ -31,105 +26,51 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
     private final Channel requestingChannel;
 
-    public CassandraRequestHandler(final Channel requestingChannel) {
+    private final QueryManager queryManager;
+
+    public CassandraPartitionQueryHandler(final ByteBuf byteBuf, final Channel requestingChannel, final QueryManager queryManager) {
+        this.byteBuf = byteBuf;
         this.requestingChannel = requestingChannel;
+        this.queryManager = queryManager;
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+    public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
 
         /**
-         * FIXME// lets try to result this, because we are wasting lot of CPU cycles to alocate new direct buffer
+         * FIXME// lets try to result this, because we are wasting lot of CPU cycles to allocate new direct buffer
          * FIXME// after each <page_state> query.
-         */
-        /**
+         *
          * FIXME// super important ! ensure that Buffers are released correctly !
          */
-        if (queryNumber == 1) {
-            if (firstTime) {
-                firstTime = false;
-                byteBuf = ctx.channel().alloc().buffer();
-            }
-
-            byteBuf.writeBytes((ByteBuf) (msg));
-        } else if (queryNumber > 1) {
-            byteBuf.writeBytes((ByteBuf) (msg));
-        }
-    }
-
-    public static int unsignedToBytes(byte b) {
-        return b & 0xFF;
+        byteBuf.writeBytes((ByteBuf) (msg));
     }
 
     @Override
     public void channelReadComplete(final ChannelHandlerContext ctx) throws Exception {
 
-
         if (queryNumber == 0) {
-            final ByteBuf buffer = ctx.alloc().heapBuffer();
-
-            constructQueryMessage(buffer, null);
-
-            ctx.writeAndFlush(buffer);
-
-            byteBuf = ctx.alloc().buffer();
-
-        } else if (queryNumber == 1) {
 
             parseQueryResponseHeaders();
 
             performRowRead(ctx);
 
         } else {
-
             performRowRead(ctx);
         }
 
-        queryNumber++;
-    }
+        if (rowsIndex == rows) {
+            resetStateAndQueryBasedOnPageState(ctx);
+        } else {
+            queryNumber++;
 
-    private void resetStateAndQueryBasedOnPageState(final ChannelHandlerContext ctx) {
-
-        System.err.println("Processed rows from response " + rowsIndex);
-
-        queryNumber = 0;
-
-        firstTime = true;
-
-        byteBuf = null;
-
-        rows = 0;
-
-        rowsIndex = 0;
-
-        byte[] page_state_temp = page_state;
-        page_state = null;
-
-        queryWithState(ctx, page_state_temp);
-    }
-
-    public void queryWithState(ChannelHandlerContext ctx, byte[] page_state) {
-
-        if (finishMePleaseThereIsNoMoreResults) {
-            System.err.println("ALL PROCESSED ROWS " + globalRowsCount);
-
-            requestingChannel.close();//FIXME don't forget about me.
-
-            return;
         }
 
-        final ByteBuf buffer = ctx.alloc().heapBuffer();
-
-        constructQueryMessage(buffer, page_state);
-
-        ctx.writeAndFlush(buffer);
-
-        byteBuf = ctx.alloc().buffer();
     }
 
     public void parseQueryResponseHeaders() {
 
-        System.err.println("Version: " + unsignedToBytes(byteBuf.readByte()));
+        System.err.println("Version: " + byteBuf.readByte());
         System.err.println("Flag: " + byteBuf.readByte());
         System.err.println("StreamId: " + byteBuf.readByte() + "" + byteBuf.readByte());
         System.err.println("Op code: " + byteBuf.readByte());
@@ -167,9 +108,51 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
             rows = byteBuf.readInt();
             System.err.println("Rows count " + rows);
             System.err.println();
-
         }
 
+    }
+
+    private void resetStateAndQueryBasedOnPageState(final ChannelHandlerContext ctx) {
+
+        System.err.println("Processed rows from response " + rowsIndex);
+
+        queryNumber = 0;
+
+        byteBuf = null;
+
+        rows = 0;
+
+        rowsIndex = 0;
+
+        byte[] page_state_temp = page_state;
+        page_state = null;
+
+        queryWithState(ctx, page_state_temp);
+    }
+
+    public void queryWithState(ChannelHandlerContext ctx, byte[] page_state) {
+
+        if (finishMePleaseThereIsNoMoreResults) {
+            System.err.println("ALL PROCESSED ROWS " + globalRowsCount);
+
+            /**
+             * Install new handler and perform query for next partition.
+             */
+            CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(ctx.channel(), requestingChannel, queryManager);
+
+//            requestingChannel.close();//FIXME don't forget about me.
+
+            return;
+        }
+
+        final ByteBuf buffer = ctx.alloc().heapBuffer();
+
+        constructQueryMessage(buffer, queryManager.queryForCurrentPartition(), page_state);
+
+        ctx.writeAndFlush(buffer);
+
+        //
+        byteBuf = ctx.alloc().buffer();
     }
 
     /**
@@ -234,11 +217,10 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
                     return;
                 }
 
-                int rowLength = byteBuf.readInt();
-
+                byteBuf.readInt(); //size
                 sumOfReadBytes += 4;
 
-                if (!byteBuf.isReadable(rowLength)) {
+                if (!byteBuf.isReadable(8)) {
 
                     byteBuf.readerIndex(byteBuf.readerIndex() - sumOfReadBytes);
 
@@ -256,8 +238,7 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
                     return;
                 }
-
-                int rowLength = byteBuf.readInt();
+                byteBuf.readInt();
                 sumOfReadBytes += 4;
 
                 if (!byteBuf.isReadable(8)) {
@@ -266,12 +247,10 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
 
                     return;
                 }
-                long mostSignificant = byteBuf.readLong();
-                long lessSignificant = byteBuf.readLong();
 
-                sumOfReadBytes += 16;
+                long l = byteBuf.readLong();
 
-                UUID uuid = new UUID(mostSignificant, lessSignificant);
+                sumOfReadBytes += 8;
             }
             {
                 if (!byteBuf.isReadable(4)) {
@@ -305,7 +284,7 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
                 final ByteBuf buffer = ctx.alloc().buffer();
                 buffer.writeBytes(bytes);
 
-                //FIXME ISWRITABLE HAVE TO BE CHECK, IF NO, THERE WILL BE NO BACKPRESSURE AT APPLICATION LEVEL.
+                //FIXME IS_WRITABLE HAVE TO BE CHECK, IF NO, THERE WILL BE NO BACKPRESSURE AT APPLICATION LEVEL.
 
                 //flush, flush flush ....one performance killer more.
 
@@ -319,9 +298,6 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
             globalRowsCount++;
         }
 
-        if (rowsIndex == rows) {
-            resetStateAndQueryBasedOnPageState(ctx);
-        }
     }
 
     @Override
@@ -330,4 +306,5 @@ public class CassandraRequestHandler extends ChannelInboundHandlerAdapter {
         cause.printStackTrace();
         ctx.close();
     }
+
 }

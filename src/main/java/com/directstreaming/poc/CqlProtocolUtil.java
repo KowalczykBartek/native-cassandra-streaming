@@ -7,15 +7,15 @@ public class CqlProtocolUtil {
     /**
      * I will be honest with you - I could not find info about <page_state> in
      * https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec so I just looked at Cassandra
-     * source code, and it seems that ResultSet.java:409 (pagingState.serialize(version)) writes 63bytes,
+     * source code, and it seems that ResultSet.java:409 (pagingState.serialize(version)) writes X bytes,
      * so I just hardcoded it for now - but of course FIXME ;D
+     *
+     * FIXME This value depends on query !
      */
-    public static final int PAGE_STATE_MAGIC_NUMBER = 63;
+    public static final int PAGE_STATE_MAGIC_NUMBER = 26;
 
     private final static String CQL_VERSION_KEY = "CQL_VERSION";
     private final static String CQL_VERSION_VALUE = "3.0.0";
-
-    private final static String SELECT_QUERY = "SELECT * FROM test_keyspace.test_table;";
 
     /**
      * Construct STARTUP message - it will allows for further interactions with Cassandra.
@@ -72,7 +72,7 @@ public class CqlProtocolUtil {
      * @param buffer
      * @param page_state
      */
-    public static void constructQueryMessage(final ByteBuf buffer, final byte[] page_state) {
+    public static void constructQueryMessage(final ByteBuf buffer, final String queryMessage, final byte[] page_state) {
         buffer.writeByte(0x04); //request
 
         buffer.writeBytes(new byte[]{0}); // flag
@@ -82,13 +82,13 @@ public class CqlProtocolUtil {
         buffer.writeBytes(new byte[]{0x07}); // query
 
         if (page_state != null) {
-            buffer.writeInt(SELECT_QUERY.length() + 4 + 2 + 1 + 4 + page_state.length); //body size
+            buffer.writeInt(queryMessage.length() + 4 + 2 + 1 + 4 + page_state.length); //body size
         } else {
-            buffer.writeInt(SELECT_QUERY.length() + 4 + 2 + 1 + 4); //body size
+            buffer.writeInt(queryMessage.length() + 4 + 2 + 1 + 4); //body size
         }
 
-        buffer.writeInt(SELECT_QUERY.length()); //size of query
-        buffer.writeBytes(SELECT_QUERY.getBytes()); //query
+        buffer.writeInt(queryMessage.length()); //size of query
+        buffer.writeBytes(queryMessage.getBytes()); //query
 
         //consistency 0x0001 == ONE, fixme later maybe
         buffer.writeShort(0x0001);

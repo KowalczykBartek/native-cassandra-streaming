@@ -38,7 +38,7 @@ public class Setup {
                     CELL_NAME_1 + " text," + //
                     CELL_NAME_2 + " text, " + //
                     CELL_NAME_3 + " bigint, " + //
-                    CELL_NAME_4 + " uuid, " + //
+                    CELL_NAME_4 + " bigint, " + //
                     CELL_NAME_5 + " text, " + //
                     "PRIMARY KEY ((" + CELL_NAME_1 + "," + CELL_NAME_2 + "," + CELL_NAME_3 + ")," //
                     /* clustering column */ + CELL_NAME_4 + "));";
@@ -63,21 +63,23 @@ public class Setup {
         final PreparedStatement insertExtensionMetrics =  //
                 session.prepare(INSERT_QUERY);
 
-        long bucket = bucketize(1111811051321l);
+        long bucket = 1;
 
         while (true) {
-            bucket += 1;
-            final BoundStatement preparedInsert = insertExtensionMetrics.//
-                    bind("value1", "value2", bucket, UUIDs.timeBased(), EXAMPLE_JSON);
 
-            session.execute(preparedInsert.setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM));
+            for (long i = 0; i < 50000; i++) {
 
-            System.err.println("Query finished");
+                final BoundStatement preparedInsert = insertExtensionMetrics.//
+                        bind("value1", "value2", bucket, i, EXAMPLE_JSON);
+
+                session.execute(preparedInsert.setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM));
+
+            }
+
+            System.err.println("Query finished for " + bucket);
+
+            bucket++;
         }
-    }
-
-    public static long bucketize(final long timestamp) {
-        return (timestamp / 60_000) * 60_000;
     }
 
 }

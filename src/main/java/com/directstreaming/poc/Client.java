@@ -8,6 +8,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
+import static com.directstreaming.poc.CassandraStartupResponseHandler.STARTUP_MESSAGE_HANDLER_NAME;
 import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
 
 /**
@@ -23,7 +24,10 @@ public class Client {
         final EventLoopGroup group = new NioEventLoopGroup(1);
 
         try {
-            Bootstrap b = new Bootstrap();
+
+            final QueryManager queryManager = new QueryManager();
+
+            final Bootstrap b = new Bootstrap();
             b.group(group)
                     .channel(NioSocketChannel.class)
                     .option(ChannelOption.TCP_NODELAY, true)
@@ -31,22 +35,22 @@ public class Client {
                         @Override
                         protected void initChannel(final SocketChannel ch) throws Exception {
                             ChannelPipeline p = ch.pipeline();
-                            p.addLast(new CassandraRequestHandler(null));
+                            p.addLast(STARTUP_MESSAGE_HANDLER_NAME,new CassandraStartupResponseHandler(null, queryManager));
                         }
                     });
 
             final ChannelFuture sync = b.connect("127.0.0.1", 9042).sync();
 
-            final Channel channel = sync.channel();
-            final ByteBufAllocator alloc = channel.alloc();
+            final Channel cassandraChannel = sync.channel();
+            final ByteBufAllocator alloc = cassandraChannel.alloc();
 
             final ByteBuf buffer = alloc.heapBuffer();
 
             constructStartupMessage(buffer); //construct STARTUP message - say hello to Cassandra node.
 
-            channel.writeAndFlush(buffer);
+            cassandraChannel.writeAndFlush(buffer);
 
-            channel.closeFuture().await();
+            cassandraChannel.closeFuture().await();
 
         } catch (final InterruptedException ex) {
             System.err.println("Houston we have a problem " + ex);
