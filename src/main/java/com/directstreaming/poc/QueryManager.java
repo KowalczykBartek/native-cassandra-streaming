@@ -15,10 +15,6 @@ public class QueryManager {
         this.counter = new LongAdder();
     }
 
-    public boolean hasNext() {
-        return true;
-    }
-
     public String queryForNewPartition() {
 
         counter.increment();
@@ -37,5 +33,10 @@ public class QueryManager {
         final String finalQuery = String.format(QUERY, value);
 
         return finalQuery;
+    }
+
+    public boolean hasNextPartition()
+    {
+        return counter.intValue() < 10;
     }
 }

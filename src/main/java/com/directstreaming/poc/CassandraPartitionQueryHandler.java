@@ -130,17 +130,21 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
         queryWithState(ctx, page_state_temp);
     }
 
-    public void queryWithState(ChannelHandlerContext ctx, byte[] page_state) {
+    public void queryWithState(final ChannelHandlerContext ctx, byte[] page_state) {
 
         if (finishMePleaseThereIsNoMoreResults) {
             System.err.println("ALL PROCESSED ROWS " + globalRowsCount);
 
-            /**
-             * Install new handler and perform query for next partition.
-             */
-            CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(ctx.channel(), requestingChannel, queryManager);
 
-//            requestingChannel.close();//FIXME don't forget about me.
+            if (queryManager.hasNextPartition()) {
+                /**
+                 * Install new handler and perform query for next partition.
+                 */
+                CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(ctx.channel(), requestingChannel, queryManager);
+
+            } else {
+                closeAndCleanupConnections(ctx);
+            }
 
             return;
         }
@@ -151,8 +155,18 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
         ctx.writeAndFlush(buffer);
 
-        //
+
         byteBuf = ctx.alloc().buffer();
+    }
+
+    private void closeAndCleanupConnections(final ChannelHandlerContext ctx) {
+        ctx.channel().close().addListener(feature -> {
+            if(!feature.isSuccess())
+            {
+                //FIXME log
+            }
+            requestingChannel.close();
+        });
     }
 
     /**
