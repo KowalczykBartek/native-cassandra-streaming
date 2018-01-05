@@ -10,6 +10,8 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.ResourceLeakDetector;
+import org.apache.log4j.Logger;
 
 /**
  * Dump Cassandra connector (exposed as Server util) - attempt to query cassandra without any external driver.
@@ -22,9 +24,13 @@ import io.netty.handler.logging.LoggingHandler;
  */
 public class Server {
 
+    static Logger LOG = Logger.getLogger(Server.class);
+
     public static void main(final String... args) throws InterruptedException {
         final EventLoopGroup bossGroup = new NioEventLoopGroup(1);
         final EventLoopGroup workerGroup = new NioEventLoopGroup();
+
+        LOG.info("Going to start Netty server on port 8080");
 
         try {
 
@@ -47,6 +53,10 @@ public class Server {
             f.channel().closeFuture().sync();
 
         } finally {
+
+            LOG.info("Closing connections and cleaning threads");
+
+
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }

@@ -40,3 +40,5 @@ gradlew
 gradle/
 gradlew.bat
 settings.gradle
+
+out/

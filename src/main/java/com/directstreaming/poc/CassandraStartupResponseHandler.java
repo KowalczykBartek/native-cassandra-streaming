@@ -6,7 +6,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 
 public class CassandraStartupResponseHandler extends ChannelInboundHandlerAdapter {
 
-    public static final String STARTUP_MESSAGE_HANDLER_NAME = "";
+    public static final String STARTUP_MESSAGE_HANDLER_NAME = "startupMessageHandler";
 
     private final Channel requestingChannel;
 
@@ -25,7 +25,7 @@ public class CassandraStartupResponseHandler extends ChannelInboundHandlerAdapte
         ctx.pipeline().remove(STARTUP_MESSAGE_HANDLER_NAME);
 
         //install new handler
-        CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(ctx.channel(), requestingChannel, queryManager);
+        CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(null, ctx.channel(), requestingChannel, queryManager);
     }
 
 }

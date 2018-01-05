@@ -7,6 +7,7 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import org.apache.log4j.Logger;
 
 import static com.directstreaming.poc.CassandraStartupResponseHandler.STARTUP_MESSAGE_HANDLER_NAME;
 import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
@@ -18,6 +19,8 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
  * This code is actually worse than horrible - but works - at least for me (｡◕‿‿◕｡)
  */
 public class Client {
+
+    static Logger LOG = Logger.getLogger(Client.class);
 
     public static void main(final String... args) throws InterruptedException {
 
@@ -53,7 +56,7 @@ public class Client {
             cassandraChannel.closeFuture().await();
 
         } catch (final InterruptedException ex) {
-            System.err.println("Houston we have a problem " + ex);
+            LOG.error("Houston we have a problem ", ex);
         } finally {
             group.shutdownGracefully();
         }

@@ -70,7 +70,7 @@ public class StartStreamingRequestHandler extends ChannelInboundHandlerAdapter {
 
                 final ByteBufAllocator alloc = channel.alloc();
 
-                final ByteBuf buffer = alloc.directBuffer();
+                final ByteBuf buffer = alloc.heapBuffer();
 
                 /*
                  * construct STARTUP message - say hello to Cassandra node.

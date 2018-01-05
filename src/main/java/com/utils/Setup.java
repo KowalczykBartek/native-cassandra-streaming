@@ -2,6 +2,8 @@ package com.utils;
 
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.utils.UUIDs;
+import com.utils.client.SimpleStreamingClientHandler;
+import org.apache.log4j.Logger;
 
 import java.util.Random;
 
@@ -9,6 +11,8 @@ import java.util.Random;
  *
  */
 public class Setup {
+
+    static Logger LOG = Logger.getLogger(Setup.class);
 
     private static final String EXAMPLE_JSON = "{" +
             "\"id\": 1," +
@@ -76,7 +80,7 @@ public class Setup {
 
             }
 
-            System.err.println("Query finished for " + bucket);
+            LOG.info("Query finished for " + bucket);
 
             bucket++;
         }

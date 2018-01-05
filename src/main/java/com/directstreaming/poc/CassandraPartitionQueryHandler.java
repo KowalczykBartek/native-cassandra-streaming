@@ -4,11 +4,14 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import org.apache.log4j.Logger;
 
 import static com.directstreaming.poc.CqlProtocolUtil.PAGE_STATE_MAGIC_NUMBER;
 import static com.directstreaming.poc.CqlProtocolUtil.constructQueryMessage;
 
 public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter {
+
+    static Logger LOG = Logger.getLogger(CassandraPartitionQueryHandler.class);
 
     private long globalRowsCount = 0;
 
@@ -35,15 +38,30 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
     }
 
     @Override
+    public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+        LOG.info("Going to unregister and releasing bytebuf " + byteBuf);
+        byteBuf.release();
+        LOG.info("Ref count of " + byteBuf + " is " + byteBuf.refCnt());
+    }
+
+    @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
 
         /**
-         * FIXME// lets try to result this, because we are wasting lot of CPU cycles to allocate new direct buffer
-         * FIXME// after each <page_state> query.
-         *
-         * FIXME// super important ! ensure that Buffers are released correctly !
+         * This place
          */
-        byteBuf.writeBytes((ByteBuf) (msg));
+        ByteBuf receivedMessage = null;
+        try {
+            receivedMessage = (ByteBuf) (msg);
+            byteBuf.writeBytes(receivedMessage);
+        } finally {
+            /*
+             * see http://netty.io/wiki/reference-counted-objects.html
+             */
+            if (receivedMessage != null) {
+                receivedMessage.release();
+            }
+        }
     }
 
     @Override
@@ -70,55 +88,50 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
     public void parseQueryResponseHeaders() {
 
-        System.err.println("Version: " + byteBuf.readByte());
-        System.err.println("Flag: " + byteBuf.readByte());
-        System.err.println("StreamId: " + byteBuf.readByte() + "" + byteBuf.readByte());
-        System.err.println("Op code: " + byteBuf.readByte());
+        byteBuf.readerIndex(byteBuf.readerIndex() + 1);
 
-        int size = byteBuf.readInt(); //BODY SIZE
-        System.err.println("BODY SIZE: " + size);
+        byteBuf.readerIndex(byteBuf.readerIndex() + 1);
 
-        System.err.println("Response Type: " + byteBuf.readInt());
+        byteBuf.readerIndex(byteBuf.readerIndex() + 2);
+
+        byteBuf.readerIndex(byteBuf.readerIndex() + 1);
+
+        byteBuf.readerIndex(byteBuf.readerIndex() + 4);
+
+        byteBuf.readerIndex(byteBuf.readerIndex() + 4);
 
         int metadataFlag = byteBuf.readInt();
-
-        System.err.println("metadataFlag: " + metadataFlag);
 
         if (metadataFlag == 5) {
             /**
              *  NO MORE PAGES AND NO <PAGING_STATE> INCLUDED
              */
-            int columnsCount = byteBuf.readInt();
-            System.err.println("columns count " + columnsCount);
+
+            byteBuf.readerIndex(byteBuf.readerIndex() + 4);
 
             finishMePleaseThereIsNoMoreResults = true;
 
             rows = byteBuf.readInt();
-            System.err.println("Rows count " + rows);
-            System.err.println();
-
+            LOG.info("Rows count " + rows);
 
         } else {
-            int columnsCount = byteBuf.readInt();
-            System.err.println("columns count " + columnsCount);
+            byteBuf.readerIndex(byteBuf.readerIndex() + 4);
 
             page_state = new byte[PAGE_STATE_MAGIC_NUMBER];
             byteBuf.readBytes(page_state);
 
             rows = byteBuf.readInt();
-            System.err.println("Rows count " + rows);
-            System.err.println();
+
+            LOG.info("Rows count " + rows);
         }
 
     }
 
     private void resetStateAndQueryBasedOnPageState(final ChannelHandlerContext ctx) {
 
-        System.err.println("Processed rows from response " + rowsIndex);
+        LOG.info("Processed rows from response " + rowsIndex);
 
         queryNumber = 0;
-
-        byteBuf = null;
 
         rows = 0;
 
@@ -133,16 +146,24 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
     public void queryWithState(final ChannelHandlerContext ctx, byte[] page_state) {
 
         if (finishMePleaseThereIsNoMoreResults) {
-            System.err.println("ALL PROCESSED ROWS " + globalRowsCount);
-
+            LOG.debug("All rows processed " + globalRowsCount);
 
             if (queryManager.hasNextPartition()) {
                 /**
                  * Install new handler and perform query for next partition.
                  */
-                CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(ctx.channel(), requestingChannel, queryManager);
+
+                LOG.debug("Starting new query");
+
+                //this byteBuf will be reused
+                byteBuf.resetReaderIndex();
+                byteBuf.resetWriterIndex();
+
+                CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(byteBuf, ctx.channel(), requestingChannel, queryManager);
 
             } else {
+                LOG.debug("Closing connection");
+
                 closeAndCleanupConnections(ctx);
             }
 
@@ -155,15 +176,14 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
         ctx.writeAndFlush(buffer);
 
-
-        byteBuf = ctx.alloc().buffer();
+        byteBuf.resetReaderIndex();
+        byteBuf.resetWriterIndex();
     }
 
     private void closeAndCleanupConnections(final ChannelHandlerContext ctx) {
         ctx.channel().close().addListener(feature -> {
-            if(!feature.isSuccess())
-            {
-                //FIXME log
+            if (!feature.isSuccess()) {
+                LOG.error("Exception ", feature.cause());
             }
             requestingChannel.close();
         });
@@ -285,39 +305,26 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
                 }
                 sumOfReadBytes += rowLength;
 
-                byte[] bytes = new byte[rowLength];
+                final ByteBuf slice = byteBuf.slice(byteBuf.readerIndex(), rowLength);
+                byteBuf.retain();//http://netty.io/wiki/reference-counted-objects.html
 
-                byteBuf.readBytes(bytes);
-
-//                final ByteBuf slice = byteBuf.slice(byteBuf.readerIndex(), rowLength);
-//
-//                byteBuf.readerIndex(byteBuf.readerIndex() + rowLength);
-
-                //FIXME THIS HAVE TO BE REPLACED WITH NO-USER-SPACE COPY
-                //FIXME BUT FOR END-TO-END, NOW IT CAN BE LIKE THAT.
-                final ByteBuf buffer = ctx.alloc().buffer();
-                buffer.writeBytes(bytes);
-
-                //FIXME IS_WRITABLE HAVE TO BE CHECK, IF NO, THERE WILL BE NO BACKPRESSURE AT APPLICATION LEVEL.
-
-                //flush, flush flush ....one performance killer more.
+                byteBuf.readerIndex(byteBuf.readerIndex() + rowLength);
 
                 if (requestingChannel != null) {
-                    requestingChannel.writeAndFlush(buffer);
+                    requestingChannel.writeAndFlush(slice);
                 }
-                //FIXME use slice !
+
             }
 
-            /*FIXME*/
             globalRowsCount++;
         }
 
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) {
         // Close the connection when an exception is raised.
-        cause.printStackTrace();
+        LOG.error("Exception occurred", cause);
         ctx.close();
     }
 
