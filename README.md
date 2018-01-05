@@ -13,7 +13,15 @@ and using page_state will try to stream all data (without driver of course).
 ## how to run ?
 Run Cassandra (expected localhost with port 9042 - so, default).<br />
 You can use Setup.java to create keyspace and table - this class will also put into Cassandra some record,
-next just run Server and connect via plain TCP, you can use telnet or included StreamingClient.
+next just run Server : <br />
+```bash
+./gradlew -PmainClass=com.directstreaming.poc.Server execute
+```
+<br />
+and connect via plain TCP, you can use telnet or included StreamingClient <br />
+```bash
+./gradlew -PmainClass=com.utils.client.StreamingClient execute
+```
 
 ## links
 https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
