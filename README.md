@@ -18,10 +18,11 @@ next just run Server : <br />
 ./gradlew -PmainClass=com.directstreaming.poc.Server execute
 ```
 <br />
-and connect via plain TCP, you can use telnet or included StreamingClient <br />
+and connect via plain TCP, you can use telnet or included StreamingClient
 ```bash
 ./gradlew -PmainClass=com.utils.client.StreamingClient execute
 ```
+<br />
 
 ## links
 https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
