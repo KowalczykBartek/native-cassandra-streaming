@@ -19,6 +19,7 @@ next just run Server : <br />
 ```
 <br />
 and connect via plain TCP, you can use telnet or included StreamingClient
+
 ```bash
 ./gradlew -PmainClass=com.utils.client.StreamingClient execute
 ```
