@@ -2,6 +2,7 @@ package com.directstreaming.poc;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.apache.log4j.Logger;
@@ -11,7 +12,11 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructQueryMessage;
 
 public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter {
 
-    static Logger LOG = Logger.getLogger(CassandraPartitionQueryHandler.class);
+    private static Logger LOG = Logger.getLogger(CassandraPartitionQueryHandler.class);
+
+    private static final String EMPTY = "";
+
+    private boolean wasWritingStopped = false;
 
     private long globalRowsCount = 0;
 
@@ -46,13 +51,12 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
-
-        /**
-         * This place
-         */
+        
         ByteBuf receivedMessage = null;
         try {
             receivedMessage = (ByteBuf) (msg);
+
+            byteBuf.discardReadBytes();
             byteBuf.writeBytes(receivedMessage);
         } finally {
             /*
@@ -78,7 +82,8 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
         }
 
         if (rowsIndex == rows) {
-            resetStateAndQueryBasedOnPageState(ctx);
+            final ChannelFuture channelFuture = requestingChannel.writeAndFlush(EMPTY);
+            channelFuture.addListener(result -> resetStateAndQueryBasedOnPageState(ctx));
         } else {
             queryNumber++;
 
@@ -112,7 +117,10 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
             finishMePleaseThereIsNoMoreResults = true;
 
             rows = byteBuf.readInt();
-            LOG.info("Rows count " + rows);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Rows count " + rows);
+            }
 
         } else {
             byteBuf.readerIndex(byteBuf.readerIndex() + 4);
@@ -122,20 +130,24 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
             rows = byteBuf.readInt();
 
-            LOG.info("Rows count " + rows);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Rows count " + rows);
+            }
         }
 
     }
 
     private void resetStateAndQueryBasedOnPageState(final ChannelHandlerContext ctx) {
-
-        LOG.info("Processed rows from response " + rowsIndex);
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Processed rows from response " + rowsIndex);
+        }
         queryNumber = 0;
 
         rows = 0;
 
         rowsIndex = 0;
+
+        wasWritingStopped = false;
 
         byte[] page_state_temp = page_state;
         page_state = null;
@@ -146,23 +158,27 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
     public void queryWithState(final ChannelHandlerContext ctx, byte[] page_state) {
 
         if (finishMePleaseThereIsNoMoreResults) {
-            LOG.debug("All rows processed " + globalRowsCount);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("All rows processed " + globalRowsCount);
+            }
 
             if (queryManager.hasNextPartition()) {
                 /**
                  * Install new handler and perform query for next partition.
                  */
-
-                LOG.debug("Starting new query");
-
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Starting new query");
+                }
                 //this byteBuf will be reused
-                byteBuf.resetReaderIndex();
-                byteBuf.resetWriterIndex();
+                byteBuf.release();
+                byteBuf = ctx.alloc().directBuffer();
 
                 CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(byteBuf, ctx.channel(), requestingChannel, queryManager);
 
             } else {
-                LOG.debug("Closing connection");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Closing connection");
+                }
 
                 closeAndCleanupConnections(ctx);
             }
@@ -170,14 +186,14 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
             return;
         }
 
-        final ByteBuf buffer = ctx.alloc().heapBuffer();
+        final ByteBuf buffer = ctx.alloc().directBuffer();
 
         constructQueryMessage(buffer, queryManager.queryForCurrentPartition(), page_state);
 
         ctx.writeAndFlush(buffer);
 
-        byteBuf.resetReaderIndex();
-        byteBuf.resetWriterIndex();
+        byteBuf.release();
+        byteBuf = ctx.alloc().directBuffer();
     }
 
     private void closeAndCleanupConnections(final ChannelHandlerContext ctx) {
@@ -189,6 +205,16 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
         });
     }
 
+    @Override
+    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+        if (ctx.channel().isWritable() && wasWritingStopped) {
+            performRowRead(ctx);
+
+            wasWritingStopped = false;
+        }
+    }
+
+
     /**
      * <magic>
      * ( ͡° ͜ʖ ͡° )つ──☆*:・ﾟ
@@ -197,6 +223,19 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
      * @param ctx
      */
     public void performRowRead(final ChannelHandlerContext ctx) {
+
+        /**
+         * Backpressure is super important - we have to stop write to channel if Netty cannot keep up, because,
+         * if we will not do that, GC will be suffered. Ff writability will change its state to "writable"
+         * we will again start writing - check channelWritabilityChanged
+         */
+        if (!ctx.channel().isWritable()) {
+            LOG.info("Write have to be postponed");
+
+            wasWritingStopped = true;
+
+            return;
+        }
 
         for (; rowsIndex < rows; rowsIndex++) {
 
@@ -305,20 +344,18 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
                 }
                 sumOfReadBytes += rowLength;
 
-                final ByteBuf slice = byteBuf.slice(byteBuf.readerIndex(), rowLength);
-                byteBuf.retain();//http://netty.io/wiki/reference-counted-objects.html
+                final ByteBuf copy = byteBuf.copy(byteBuf.readerIndex(), rowLength);
 
                 byteBuf.readerIndex(byteBuf.readerIndex() + rowLength);
 
                 if (requestingChannel != null) {
-                    requestingChannel.writeAndFlush(slice);
+                    requestingChannel.write(copy);
                 }
 
             }
 
             globalRowsCount++;
         }
-
     }
 
     @Override

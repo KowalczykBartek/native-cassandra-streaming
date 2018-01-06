@@ -1,6 +1,7 @@
 package com.directstreaming.poc;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -12,6 +13,8 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.ResourceLeakDetector;
 import org.apache.log4j.Logger;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * Dump Cassandra connector (exposed as Server util) - attempt to query cassandra without any external driver.
@@ -31,6 +34,13 @@ public class Server {
         final EventLoopGroup workerGroup = new NioEventLoopGroup();
 
         LOG.info("Going to start Netty server on port 8080");
+
+        PooledByteBufAllocator aDefault = PooledByteBufAllocator.DEFAULT;
+
+        /**
+         * Lets take a look into Pooled memory metrics.
+         */
+        bossGroup.scheduleAtFixedRate(() -> LOG.info(aDefault.metric()), 1, 10, TimeUnit.SECONDS);
 
         try {
 
@@ -55,7 +65,6 @@ public class Server {
         } finally {
 
             LOG.info("Closing connections and cleaning threads");
-
 
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();

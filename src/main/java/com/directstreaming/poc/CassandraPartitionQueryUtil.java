@@ -29,7 +29,7 @@ public class CassandraPartitionQueryUtil {
         CassandraPartitionQueryHandler cassandraPartitionQueryHandler;
 
         if (responseHandlerBuffer == null) {
-            final ByteBuf newResponseHandlerBuffer = cassandraChannel.alloc().heapBuffer();
+            final ByteBuf newResponseHandlerBuffer = cassandraChannel.alloc().directBuffer();
 
             cassandraPartitionQueryHandler =
                     new CassandraPartitionQueryHandler(newResponseHandlerBuffer, requestingChannel, queryManager);
@@ -41,9 +41,9 @@ public class CassandraPartitionQueryUtil {
         cassandraChannel.pipeline().addLast(CASSANDRA_PARTITION_HANDLER_NAME, cassandraPartitionQueryHandler);
 
         /*
-         * Construct first query that will be later handler by
+         * Construct first query that will be later handler by cassandraPartitionQueryHandler
          */
-        final ByteBuf buffer = cassandraChannel.alloc().heapBuffer();
+        final ByteBuf buffer = cassandraChannel.alloc().directBuffer();
         constructQueryMessage(buffer, queryManager.queryForNewPartition(), null);
         cassandraChannel.writeAndFlush(buffer);
     }

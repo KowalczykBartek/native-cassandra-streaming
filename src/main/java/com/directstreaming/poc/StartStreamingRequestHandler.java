@@ -6,6 +6,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.*;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import org.apache.log4j.Logger;
 
 import static com.directstreaming.poc.CassandraStartupResponseHandler.STARTUP_MESSAGE_HANDLER_NAME;
 import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
@@ -23,6 +24,8 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
  */
 @ChannelHandler.Sharable
 public class StartStreamingRequestHandler extends ChannelInboundHandlerAdapter {
+
+    private static Logger LOG = Logger.getLogger(StartStreamingRequestHandler.class);
 
     private final EventLoopGroup group;
 
@@ -70,7 +73,7 @@ public class StartStreamingRequestHandler extends ChannelInboundHandlerAdapter {
 
                 final ByteBufAllocator alloc = channel.alloc();
 
-                final ByteBuf buffer = alloc.heapBuffer();
+                final ByteBuf buffer = alloc.heapBuffer(35);
 
                 /*
                  * construct STARTUP message - say hello to Cassandra node.

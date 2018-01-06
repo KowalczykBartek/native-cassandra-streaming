@@ -17,7 +17,7 @@ next just run Server : <br />
 ```bash
 ./gradlew -PmainClass=com.directstreaming.poc.Server execute
 ```
-<br />
+
 and connect via plain TCP, you can use telnet or included StreamingClient
 
 ```bash

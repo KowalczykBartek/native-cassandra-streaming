@@ -2,6 +2,8 @@ package com.directstreaming.poc;
 
 import io.netty.buffer.ByteBuf;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class CqlProtocolUtil {
 
     /**
@@ -16,6 +18,13 @@ public class CqlProtocolUtil {
 
     private final static String CQL_VERSION_KEY = "CQL_VERSION";
     private final static String CQL_VERSION_VALUE = "3.0.0";
+
+    private static final AtomicInteger root = new AtomicInteger();
+
+    public static short incrementAndGet()
+    {
+        return (short) (root.incrementAndGet() % Short.MAX_VALUE);
+    }
 
     /**
      * Construct STARTUP message - it will allows for further interactions with Cassandra.
@@ -35,8 +44,7 @@ public class CqlProtocolUtil {
 
         buffer.writeByte(0x04); //request
         buffer.writeBytes(new byte[]{0x00}); // flag
-        buffer.writeBytes(new byte[]{0x00}); //stream id
-        buffer.writeBytes(new byte[]{0x00}); //stream id
+        buffer.writeShort(incrementAndGet()); //stream id
         buffer.writeBytes(new byte[]{0x01}); // startup
 
         /*
@@ -77,8 +85,8 @@ public class CqlProtocolUtil {
 
         buffer.writeBytes(new byte[]{0}); // flag
 
-        buffer.writeBytes(new byte[]{0x01}); //stream id
-        buffer.writeBytes(new byte[]{0x00}); //stream id
+        buffer.writeShort(incrementAndGet()); //stream id
+
         buffer.writeBytes(new byte[]{0x07}); // query
 
         if (page_state != null) {

@@ -27,5 +27,4 @@ public class CassandraStartupResponseHandler extends ChannelInboundHandlerAdapte
         //install new handler
         CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(null, ctx.channel(), requestingChannel, queryManager);
     }
-
 }

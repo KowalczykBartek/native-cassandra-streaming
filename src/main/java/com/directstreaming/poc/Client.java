@@ -47,7 +47,7 @@ public class Client {
             final Channel cassandraChannel = sync.channel();
             final ByteBufAllocator alloc = cassandraChannel.alloc();
 
-            final ByteBuf buffer = alloc.heapBuffer();
+            final ByteBuf buffer = alloc.directBuffer();
 
             constructStartupMessage(buffer); //construct STARTUP message - say hello to Cassandra node.
 

@@ -10,6 +10,19 @@ public class SimpleStreamingClientHandler extends ChannelInboundHandlerAdapter {
 
     static Logger LOG = Logger.getLogger(SimpleStreamingClientHandler.class);
 
+    private long start;
+
+    @Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        start = System.currentTimeMillis();
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        final long time = (System.currentTimeMillis() - start) / 1000;
+        LOG.info("Took " + time);
+    }
+
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
 
