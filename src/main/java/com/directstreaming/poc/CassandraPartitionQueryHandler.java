@@ -51,7 +51,7 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
-        
+
         ByteBuf receivedMessage = null;
         try {
             receivedMessage = (ByteBuf) (msg);
