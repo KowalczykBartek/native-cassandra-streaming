@@ -35,7 +35,7 @@ public class Server {
 
         LOG.info("Going to start Netty server on port 8080");
 
-        PooledByteBufAllocator aDefault = PooledByteBufAllocator.DEFAULT;
+        final PooledByteBufAllocator aDefault = PooledByteBufAllocator.DEFAULT;
 
         /**
          * Lets take a look into Pooled memory metrics.
@@ -43,8 +43,6 @@ public class Server {
         bossGroup.scheduleAtFixedRate(() -> LOG.info(aDefault.metric()), 1, 10, TimeUnit.SECONDS);
 
         try {
-
-            final StartStreamingRequestHandler startStreamingRequestHandler = new StartStreamingRequestHandler(workerGroup);
 
             ServerBootstrap b = new ServerBootstrap()
                     .group(bossGroup, workerGroup)
@@ -54,7 +52,7 @@ public class Server {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(final SocketChannel ch) throws Exception {
-                            ch.pipeline().addLast(startStreamingRequestHandler);
+                            ch.pipeline().addLast(new StartStreamingRequestHandler(workerGroup));
                         }
                     });
 

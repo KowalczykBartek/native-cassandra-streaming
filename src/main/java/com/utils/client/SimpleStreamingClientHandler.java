@@ -1,6 +1,5 @@
 package com.utils.client;
 
-import com.directstreaming.poc.Server;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -12,26 +11,33 @@ public class SimpleStreamingClientHandler extends ChannelInboundHandlerAdapter {
 
     private long start;
 
+    private final int thread;
+
+    public SimpleStreamingClientHandler(final int thread) {
+        this.thread = thread;
+    }
+
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
         start = System.currentTimeMillis();
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
         final long time = (System.currentTimeMillis() - start) / 1000;
-        LOG.info("Took " + time);
+        LOG.info("[" + thread + "] Took " + time);
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
+    public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
 
         int i = ((ByteBuf) msg).readableBytes();
 
         byte[] message = new byte[i];
         ((ByteBuf) msg).readBytes(message);
 
-        LOG.debug(new String(message));
+//        LOG.debug("[" + thread + "] " + new String(message));
+        LOG.debug("[" + thread + "] got message");
 
         ((ByteBuf) msg).release();
     }

@@ -110,7 +110,7 @@ public class CqlProtocolUtil {
             buffer.writeByte(0b0000_0110);
         }
 
-        buffer.writeInt(2000);
+        buffer.writeInt(500);
 
         if (page_state != null) {
             buffer.writeBytes(page_state);

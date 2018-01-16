@@ -1,8 +1,7 @@
 package com.directstreaming.poc;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.apache.log4j.Logger;
@@ -13,8 +12,6 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructQueryMessage;
 public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter {
 
     private static Logger LOG = Logger.getLogger(CassandraPartitionQueryHandler.class);
-
-    private static final String EMPTY = "";
 
     private boolean wasWritingStopped = false;
 
@@ -32,13 +29,15 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
     private boolean finishMePleaseThereIsNoMoreResults = false;
 
-    private final Channel requestingChannel;
+    private final StreamingBridge bridge;
 
     private final QueryManager queryManager;
 
-    public CassandraPartitionQueryHandler(final ByteBuf byteBuf, final Channel requestingChannel, final QueryManager queryManager) {
+    private ChannelHandlerContext ctx;
+
+    public CassandraPartitionQueryHandler(final ByteBuf byteBuf, final StreamingBridge bridge, final QueryManager queryManager) {
         this.byteBuf = byteBuf;
-        this.requestingChannel = requestingChannel;
+        this.bridge = bridge;
         this.queryManager = queryManager;
     }
 
@@ -51,6 +50,10 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
+
+        if (this.ctx == null) {
+            this.ctx = ctx;
+        }
 
         ByteBuf receivedMessage = null;
         try {
@@ -82,13 +85,24 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
         }
 
         if (rowsIndex == rows) {
-            final ChannelFuture channelFuture = requestingChannel.writeAndFlush(EMPTY);
-            channelFuture.addListener(result -> resetStateAndQueryBasedOnPageState(ctx));
+
+            bridge.pokeMe.run();
+
         } else {
             queryNumber++;
 
         }
 
+    }
+
+    public void continueReading() {
+        if (ctx.executor().inEventLoop()) {
+            resetStateAndQueryBasedOnPageState(ctx);
+        } else {
+            ctx.executor().execute(() -> {
+                resetStateAndQueryBasedOnPageState(ctx);
+            });
+        }
     }
 
     public void parseQueryResponseHeaders() {
@@ -138,9 +152,8 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
     }
 
     private void resetStateAndQueryBasedOnPageState(final ChannelHandlerContext ctx) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Processed rows from response " + rowsIndex);
-        }
+        LOG.info("Processed rows from response " + rowsIndex);
+
         queryNumber = 0;
 
         rows = 0;
@@ -173,7 +186,7 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
                 byteBuf.release();
                 byteBuf = ctx.alloc().directBuffer();
 
-                CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(byteBuf, ctx.channel(), requestingChannel, queryManager);
+                CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(byteBuf, ctx.channel(), bridge, queryManager);
 
             } else {
                 if (LOG.isDebugEnabled()) {
@@ -201,7 +214,9 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
             if (!feature.isSuccess()) {
                 LOG.error("Exception ", feature.cause());
             }
-            requestingChannel.close();
+
+            ctx.channel().close();
+            bridge.cleanupIncoming.run();
         });
     }
 
@@ -344,13 +359,8 @@ public class CassandraPartitionQueryHandler extends ChannelInboundHandlerAdapter
                 }
                 sumOfReadBytes += rowLength;
 
-                final ByteBuf copy = byteBuf.copy(byteBuf.readerIndex(), rowLength);
-
-                byteBuf.readerIndex(byteBuf.readerIndex() + rowLength);
-
-                if (requestingChannel != null) {
-                    requestingChannel.write(copy);
-                }
+                //FIXME I BELIEVE !!!
+                bridge.interThreadBuffer.writeBytes(byteBuf, rowLength);
 
             }
 

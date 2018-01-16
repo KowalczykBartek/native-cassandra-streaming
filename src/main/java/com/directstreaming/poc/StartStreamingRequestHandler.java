@@ -22,15 +22,28 @@ import static com.directstreaming.poc.CqlProtocolUtil.constructStartupMessage;
  * 2.n+1 close.
  * </p>
  */
-@ChannelHandler.Sharable
 public class StartStreamingRequestHandler extends ChannelInboundHandlerAdapter {
 
     private static Logger LOG = Logger.getLogger(StartStreamingRequestHandler.class);
 
     private final EventLoopGroup group;
 
+    private Runnable lastCallback;
+
     public StartStreamingRequestHandler(final EventLoopGroup group) {
         this.group = group;
+    }
+
+    @Override
+    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+
+        if (ctx.channel().isWritable()) {
+            if (lastCallback != null) {
+                lastCallback.run();
+
+                lastCallback = null;
+            }
+        }
     }
 
     @Override
@@ -41,10 +54,77 @@ public class StartStreamingRequestHandler extends ChannelInboundHandlerAdapter {
          * because it uses internally method that "Return {@code true} if the {@link Channel} is active and so connected."
          */
 
+
         //lets start streaming
         final QueryManager queryManager = new QueryManager();
 
-        final CassandraStartupResponseHandler cassandraStartupResponseHandler = new CassandraStartupResponseHandler(ctx.channel(), queryManager);
+        final StreamingBridge bridge = new StreamingBridge(ctx.alloc().directBuffer(1024));
+
+        bridge.pokeMe = () -> {
+
+            if (ctx.executor().inEventLoop()) {
+
+                if (ctx.channel().isWritable()) {
+                    bridge.interThreadBuffer.retain();
+                    ChannelFuture writeFuture = ctx.channel().write(bridge.interThreadBuffer);
+                    ctx.flush();
+                    writeFuture.addListener(result -> {
+                        bridge.interThreadBuffer.discardReadBytes();
+                        bridge.continueReading.run();
+                    });
+
+                } else {
+                    lastCallback = () -> {
+                        bridge.interThreadBuffer.retain();
+                        ChannelFuture writeFuture = ctx.channel().write(bridge.interThreadBuffer);
+                        ctx.flush();
+                        writeFuture.addListener(result -> {
+                            bridge.interThreadBuffer.discardReadBytes();
+
+                            bridge.continueReading.run();
+                        });
+                    };
+                }
+
+            } else {
+
+                ctx.executor().execute(() -> {
+
+                    if (ctx.channel().isWritable()) {
+
+                        bridge.interThreadBuffer.retain();
+                        ChannelFuture writeFuture = ctx.channel().write(bridge.interThreadBuffer);
+                        ctx.flush();
+                        writeFuture.addListener(result -> {
+                            bridge.interThreadBuffer.discardReadBytes();
+                            bridge.continueReading.run();
+                        });
+
+                    } else {
+                        ctx.channel().flush();
+
+                        lastCallback = () -> {
+
+                            bridge.interThreadBuffer.retain();
+                            ChannelFuture writeFuture = ctx.channel().write(bridge.interThreadBuffer);
+                            ctx.flush();
+                            writeFuture.addListener(result -> {
+                                bridge.interThreadBuffer.discardReadBytes();
+                                bridge.continueReading.run();
+                            });
+                        };
+                    }
+                });
+            }
+        };
+
+        bridge.cleanupIncoming = () -> {
+            bridge.interThreadBuffer.release();
+            LOG.info("Close incoming connection - thanks for streaming !");
+            ctx.channel().close();
+        };
+
+        final CassandraStartupResponseHandler cassandraStartupResponseHandler = new CassandraStartupResponseHandler(bridge, queryManager);
 
         /*
          * new Bootstrap.

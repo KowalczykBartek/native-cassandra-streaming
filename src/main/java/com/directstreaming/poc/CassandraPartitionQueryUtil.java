@@ -14,7 +14,7 @@ public class CassandraPartitionQueryUtil {
     /**
      * fixme
      */
-    public static void installNewHandlerAndPerformQuery(final ByteBuf responseHandlerBuffer, final Channel cassandraChannel, final Channel requestingChannel,
+    public static void installNewHandlerAndPerformQuery(final ByteBuf responseHandlerBuffer, final Channel cassandraChannel, final StreamingBridge bridge,
                                                         final QueryManager queryManager) {
         //perform "garbage collection".
         final ChannelHandler channelHandlerToRemove =
@@ -32,13 +32,23 @@ public class CassandraPartitionQueryUtil {
             final ByteBuf newResponseHandlerBuffer = cassandraChannel.alloc().directBuffer();
 
             cassandraPartitionQueryHandler =
-                    new CassandraPartitionQueryHandler(newResponseHandlerBuffer, requestingChannel, queryManager);
+                    new CassandraPartitionQueryHandler(newResponseHandlerBuffer, bridge, queryManager);
         } else {
             cassandraPartitionQueryHandler =
-                    new CassandraPartitionQueryHandler(responseHandlerBuffer, requestingChannel, queryManager);
+                    new CassandraPartitionQueryHandler(responseHandlerBuffer, bridge, queryManager);
         }
 
         cassandraChannel.pipeline().addLast(CASSANDRA_PARTITION_HANDLER_NAME, cassandraPartitionQueryHandler);
+
+        /**
+         * Lets reset bridge - this is not best place because it makes responsibility more distributed,
+         * but I want it working ASAP.
+         */
+        bridge.interThreadBuffer.clear();
+
+        bridge.continueReading = () -> {
+            cassandraPartitionQueryHandler.continueReading();
+        };
 
         /*
          * Construct first query that will be later handler by cassandraPartitionQueryHandler

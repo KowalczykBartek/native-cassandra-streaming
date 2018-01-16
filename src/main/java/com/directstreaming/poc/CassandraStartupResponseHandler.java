@@ -1,6 +1,5 @@
 package com.directstreaming.poc;
 
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 
@@ -8,12 +7,12 @@ public class CassandraStartupResponseHandler extends ChannelInboundHandlerAdapte
 
     public static final String STARTUP_MESSAGE_HANDLER_NAME = "startupMessageHandler";
 
-    private final Channel requestingChannel;
+    private final StreamingBridge bridge;
 
     private final QueryManager queryManager;
 
-    public CassandraStartupResponseHandler(final Channel requestingChannel, final QueryManager queryManager) {
-        this.requestingChannel = requestingChannel;
+    public CassandraStartupResponseHandler(final StreamingBridge bridge, final QueryManager queryManager) {
+        this.bridge = bridge;
         this.queryManager = queryManager;
     }
 
@@ -25,6 +24,6 @@ public class CassandraStartupResponseHandler extends ChannelInboundHandlerAdapte
         ctx.pipeline().remove(STARTUP_MESSAGE_HANDLER_NAME);
 
         //install new handler
-        CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(null, ctx.channel(), requestingChannel, queryManager);
+        CassandraPartitionQueryUtil.installNewHandlerAndPerformQuery(null, ctx.channel(), bridge, queryManager);
     }
 }
