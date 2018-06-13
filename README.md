@@ -34,8 +34,6 @@ and connect via plain TCP, you can use telnet or included StreamingClient
 
 ## links
 https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
-## links
-https://github.com/apache/cassandra/blob/trunk/doc/native_protocol_v4.spec
 
 ## Powered by
 <img src="http://normanmaurer.me/presentations/2014-netflix-netty/images/netty_logo.png" height="75" width="150">
